@@ -3,13 +3,23 @@ const testing = std.testing;
 const net = std.net;
 
 const Request = struct {
-    method: []u8,
-    url: []u8,
-    host: []u8,
-    user_agent: []u8,
-    accept: []u8,
+    method: []u8 = "",
+    url: []u8 = "",
+    http: []u8 = "",
+    host: []u8 = "",
+    user_agent: []u8 = "",
+    accept: []u8 = "",
 };
 
+const Response = struct {
+    http: []u8 = "",
+    code: []u8 = "",
+    message: []u8 = "",
+    body: []u8 = "",
+};
+
+/// Find the index of the first occurrence of target in str,
+/// target cannot be longer than 1 char.
 fn findIndex(str: []const u8, target: []const u8) !usize {
     if (target.len > 1) return error.TooLong;
     for (str, 0..) |char, index| {
@@ -26,19 +36,19 @@ pub fn main() !void {
     defer server.deinit();
     const connection = try server.accept();
 
-    // Request
+    // Request reader
     var request_buf: [1024]u8 = undefined;
     var reader = connection.stream.reader(&request_buf);
     const r = reader.interface();
 
-    // Reponse
+    // Reponse writer
     var response_buf: [1024]u8 = undefined;
-    var response_writer = connection.stream.writer(&response_buf);
-    const w = &response_writer.interface;
+    var writer = connection.stream.writer(&response_buf);
+    const w = &writer.interface;
 
     // Parse request
     var i: u4 = 0;
-    // var req = Request{};
+    var req = Request{};
     while (r.takeDelimiterExclusive('\r')) |l| : (i += 1) {
         if (l.len <= 1) break;
         const line = if (l[0] == '\n') l[1..l.len] else l;
@@ -48,22 +58,28 @@ pub fn main() !void {
             0 => {
                 // GET /abc HTTP1.1
                 const first_space = try findIndex(line, " ");
-                const method = line[0..first_space];
-                std.debug.print("method: {s}\n", .{method});
+                req.method = line[0..first_space];
                 const second_space = first_space + 1 + try findIndex(line[first_space + 1 .. line.len], " ");
-                const url = line[first_space + 1 .. second_space];
-                std.debug.print("url: {s}\n", .{url});
-
-                const root = "/";
-                if (std.mem.eql(u8, root, url)) {
-                    _ = try w.write("HTTP/1.1 200 OK\r\n\r\n");
-                    _ = try w.flush();
-                    return;
-                } else {
-                    _ = try w.write("HTTP/1.1 404 Not Found\r\n\r\n");
-                    _ = try w.flush();
-                    return;
-                }
+                req.url = line[first_space + 1 .. second_space];
+                req.http = line[first_space + 1 + second_space + 1 .. line.len];
+            },
+            1 => {
+                // Host: 127.0.0.1:4221
+                const first_space = try findIndex(line, " ");
+                req.host = line[0..first_space];
+            },
+            2 => {
+                // User-Agent: curl/8.7.1
+                const first_space = try findIndex(line, " ");
+                req.user_agent = line[0..first_space];
+            },
+            3 => {
+                // Accept: */*
+                const first_space = try findIndex(line, " ");
+                req.accept = line[0..first_space];
+            },
+            4 => {
+                // req body
             },
             else => {},
         }
@@ -73,9 +89,15 @@ pub fn main() !void {
         error.ReadFailed => {},
     }
 
-    _ = try w.write("HTTP/1.1 200 OK\r\n\r\n");
-    _ = try w.flush();
+    // Generate response
+    const root = "/";
+    if (std.mem.eql(u8, root, req.url)) {
+        _ = try w.write("HTTP/1.1 200 OK\r\n\r\n");
+    } else {
+        _ = try w.write("HTTP/1.1 404 Not Found\r\n\r\n");
+    }
 
+    _ = try w.flush();
     std.debug.print("\n----- Client connected -----\n", .{});
 }
 
