@@ -2,15 +2,6 @@ const std = @import("std");
 const testing = std.testing;
 const net = std.net;
 
-const Request = struct {
-    method: []u8 = "",
-    url: []u8 = "",
-    http: []u8 = "",
-    host: []u8 = "",
-    user_agent: []u8 = "",
-    accept: []u8 = "",
-};
-
 const Response = struct {
     http: []u8 = "",
     code: []u8 = "",
@@ -47,58 +38,44 @@ pub fn main() !void {
     const w = &writer.interface;
 
     // Parse request
-    var i: u4 = 0;
-    var req = Request{};
-    while (r.takeDelimiterExclusive('\r')) |l| : (i += 1) {
-        if (l.len <= 1) break;
-        const line = if (l[0] == '\n') l[1..l.len] else l;
-        std.debug.print("line {d} is: {s} (len={d})\n", .{ i, line, line.len });
+    const allocator = std.heap.page_allocator;
+    var req = std.StringHashMap([]const u8).init(allocator);
+    defer req.deinit();
 
-        switch (i) {
-            0 => {
-                // GET /abc HTTP1.1
-                const first_space = try findIndex(line, " ");
-                req.method = line[0..first_space];
-                const second_space = first_space + 1 + try findIndex(line[first_space + 1 .. line.len], " ");
-                req.url = line[first_space + 1 .. second_space];
-                req.http = line[first_space + 1 + second_space + 1 .. line.len];
-            },
-            1 => {
-                // Host: 127.0.0.1:4221
-                const first_space = try findIndex(line, " ");
-                req.host = line[0..first_space];
-            },
-            2 => {
-                // User-Agent: curl/8.7.1
-                const first_space = try findIndex(line, " ");
-                req.user_agent = line[0..first_space];
-            },
-            3 => {
-                // Accept: */*
-                const first_space = try findIndex(line, " ");
-                req.accept = line[0..first_space];
-            },
-            4 => {
-                // req body
-            },
-            else => {},
+    var i: u4 = 0;
+    while (r.takeDelimiterExclusive('\r')) |l| : (i += 1) {
+        const line = if (l[0] == '\n') l[1..l.len] else l;
+        if (line.len == 0) {
+            std.debug.print("End of request\n", .{});
+            break;
+        }
+        std.debug.print("line {d} is: {s} (len={d})\n", .{ i, line, line.len });
+        if (i == 0) {
+            const first_space = try findIndex(line, " ");
+            try req.put("Method", line[0..first_space]);
+            const second_space = first_space + 1 + try findIndex(line[first_space + 1 .. line.len], " ");
+            try req.put("Url", line[first_space + 1 .. second_space]);
+            try req.put("Http",line[first_space + 1 + second_space + 1 .. line.len]);
+        } else {
+            const colon = try findIndex(line, ":");
+            try req.put(line[0..colon], line[colon + 2 .. line.len]);
         }
     } else |err| switch (err) {
         error.EndOfStream => {},
-        error.StreamTooLong => {},
-        error.ReadFailed => {},
+        error.StreamTooLong => return err,
+        error.ReadFailed => return err,
     }
 
     // Generate response
     const root = "/";
-    if (std.mem.eql(u8, root, req.url)) {
+    if (std.mem.eql(u8, root, req.get("Url").?)) {
         _ = try w.write("HTTP/1.1 200 OK\r\n\r\n");
     } else {
         _ = try w.write("HTTP/1.1 404 Not Found\r\n\r\n");
     }
 
     _ = try w.flush();
-    std.debug.print("\n----- Client connected -----\n", .{});
+    std.debug.print("----- Client connected -----\n", .{});
 }
 
 test findIndex {
