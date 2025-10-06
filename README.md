@@ -13,7 +13,7 @@ A simple tcp server written in Zig.
 - [x] Bind to a port
 - [x] Respond with 200
 - [x] Extract URL path
-- [ ] Respond with body
+- [x] Respond with body
 - [ ] Read header
 - [ ] Concurrent connection
 - [ ] Return a file
