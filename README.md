@@ -14,7 +14,7 @@ A simple tcp server written in Zig.
 - [x] Respond with 200
 - [x] Extract URL path
 - [x] Respond with body
-- [ ] Read header
+- [x] Read header
 - [ ] Concurrent connection
 - [ ] Return a file
 - [ ] Read request body

@@ -64,15 +64,28 @@ pub fn main() !void {
         _ = try w.write("HTTP/1.1 200 OK\r\n\r\n");
     } else if (url.len > 1) {
         var url_iter = mem.splitAny(u8, url[1..], "/");
-        if (mem.eql(u8, "echo", url_iter.first())) {
+        const seg = url_iter.first();
+        if (mem.eql(u8, "echo", seg)) {
             const echo_text = url_iter.next();
             if (echo_text != null) {
-                var len_buf: [8]u8 = undefined;
+                var len_buf: [256]u8 = undefined;
                 const len = try std.fmt.bufPrint(&len_buf, "{d}", .{echo_text.?.len});
                 _ = try w.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ");
                 _ = try w.write(len);
                 _ = try w.write("\r\n\r\n");
                 _ = try w.write(echo_text.?);
+            } else {
+                _ = try w.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 0\r\n\r\n");
+            }
+        } else if (mem.eql(u8, "user-agent", seg)) {
+            const user_agent = req.get("User-Agent");
+            if (user_agent != null) {
+                var len_buf: [256]u8 = undefined;
+                const len = try std.fmt.bufPrint(&len_buf, "{d}", .{user_agent.?.len});
+                _ = try w.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ");
+                _ = try w.write(len);
+                _ = try w.write("\r\n\r\n");
+                _ = try w.write(user_agent.?);
             } else {
                 _ = try w.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 0\r\n\r\n");
             }
