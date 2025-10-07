@@ -2,6 +2,11 @@ const std = @import("std");
 const testing = std.testing;
 const net = std.net;
 const mem = std.mem;
+const fs = std.fs;
+
+const Args = struct {
+    directory: ?[]const u8 = null,
+};
 
 const Response = struct {
     http: []u8 = "",
@@ -10,7 +15,7 @@ const Response = struct {
     body: []u8 = "",
 };
 
-fn handleConnection(connection: net.Server.Connection) !void {
+fn handleConnection(connection: net.Server.Connection, args: Args) !void {
     // Request reader
     var request_buf: [1024]u8 = undefined;
     var reader = connection.stream.reader(&request_buf);
@@ -86,6 +91,20 @@ fn handleConnection(connection: net.Server.Connection) !void {
             } else {
                 _ = try w.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 0\r\n\r\n");
             }
+        } else if (mem.eql(u8, "files", route)) {
+            const file_name = url_iter.next();
+            if (file_name != null) {
+                const dir = args.directory.?;
+                _ = dir;
+                if (false) {
+                    _ = try w.write("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 0\r\n\r\n");
+                } else {
+                    // file not found
+                    _ = try w.write("HTTP/1.1 404 Not Found\r\n\r\n");
+                }
+            } else {
+                _ = try w.write("HTTP/1.1 404 Not Found\r\n\r\n");
+            }
         } else {
             _ = try w.write("HTTP/1.1 404 Not Found\r\n\r\n");
         }
@@ -95,6 +114,28 @@ fn handleConnection(connection: net.Server.Connection) !void {
 }
 
 pub fn main() !void {
+    var args: Args = .{};
+    var args_iter = std.process.args();
+    _ = args_iter.next();
+    while (args_iter.next()) |arg| {
+        if (mem.startsWith(u8, arg, "--")) {
+            const arg_name = arg[2..];
+            const arg_value = args_iter.next();
+            if (mem.eql(u8, arg_name, "directory")) {
+                if (arg_value != null) {
+                    args.directory = arg_value;
+                } else {
+                    return error.ArgsValueNotFound;
+                }
+            } else {
+                return error.UnknownArgName;
+            }
+        }
+    }
+    if (args.directory == null) {
+        args.directory = "./routes";
+    }
+
     std.debug.print("\n----- Zig TCP/IP server -----\n", .{});
 
     const address = try net.Address.resolveIp("127.0.0.1", 4221);
@@ -103,7 +144,7 @@ pub fn main() !void {
 
     while (true) {
         const connection = try server.accept();
-        var thread = try std.Thread.spawn(.{}, handleConnection, .{connection});
+        var thread = try std.Thread.spawn(.{}, handleConnection, .{connection, args});
         thread.join();
     }
 
