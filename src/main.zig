@@ -10,14 +10,7 @@ const Response = struct {
     body: []u8 = "",
 };
 
-pub fn main() !void {
-    std.debug.print("\n----- Zig TCP/IP server -----\n", .{});
-
-    const address = try net.Address.resolveIp("127.0.0.1", 4221);
-    var server = try address.listen(.{ .reuse_address = true });
-    defer server.deinit();
-    const connection = try server.accept();
-
+fn handleConnection(connection: net.Server.Connection) !void {
     // Request reader
     var request_buf: [1024]u8 = undefined;
     var reader = connection.stream.reader(&request_buf);
@@ -35,7 +28,7 @@ pub fn main() !void {
 
     var i: u4 = 0;
     while (r.takeDelimiterExclusive('\r')) |l| : (i += 1) {
-        const line = if (l[0] == '\n') l[1..l.len] else l;
+        const line = if (l[0] == '\n') l[1..] else l;
         if (line.len == 0) {
             std.debug.print("End of request\n", .{});
             break;
@@ -58,14 +51,18 @@ pub fn main() !void {
     }
 
     // Generate response
-    const url = req.get("Url").?;
-    if (mem.eql(u8, "/", url)) {
+    const url = req.get("Url") orelse "";
+    if (url.len == 0) {
+        // No url
+        _ = try w.write("HTTP/1.1 404 Not Found\r\n\r\n");
+    } else if (mem.eql(u8, "/", url)) {
         // Root -> 200 OK
-        _ = try w.write("HTTP/1.1 200 OK\r\n\r\n");
-    } else if (url.len > 1) {
+        _ = try w.write("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+    } else {
+        // Other routes
         var url_iter = mem.splitAny(u8, url[1..], "/");
-        const seg = url_iter.first();
-        if (mem.eql(u8, "echo", seg)) {
+        const route = url_iter.first();
+        if (mem.eql(u8, "echo", route)) {
             const echo_text = url_iter.next();
             if (echo_text != null) {
                 var len_buf: [256]u8 = undefined;
@@ -77,7 +74,7 @@ pub fn main() !void {
             } else {
                 _ = try w.write("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 0\r\n\r\n");
             }
-        } else if (mem.eql(u8, "user-agent", seg)) {
+        } else if (mem.eql(u8, "user-agent", route)) {
             const user_agent = req.get("User-Agent");
             if (user_agent != null) {
                 var len_buf: [256]u8 = undefined;
@@ -92,10 +89,23 @@ pub fn main() !void {
         } else {
             _ = try w.write("HTTP/1.1 404 Not Found\r\n\r\n");
         }
-    } else {
-        _ = try w.write("HTTP/1.1 404 Not Found\r\n\r\n");
     }
 
     _ = try w.flush();
+}
+
+pub fn main() !void {
+    std.debug.print("\n----- Zig TCP/IP server -----\n", .{});
+
+    const address = try net.Address.resolveIp("127.0.0.1", 4221);
+    var server = try address.listen(.{ .reuse_address = true });
+    defer server.deinit();
+
+    while (true) {
+        const connection = try server.accept();
+        var thread = try std.Thread.spawn(.{}, handleConnection, .{connection});
+        thread.join();
+    }
+
     std.debug.print("----- Client connected -----\n", .{});
 }
