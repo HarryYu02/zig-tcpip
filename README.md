@@ -16,7 +16,7 @@ A simple tcp server written in Zig.
 - [x] Respond with body
 - [x] Read header
 - [x] Concurrent connection
-- [ ] Return a file
+- [x] Return a file
 - [ ] Read request body
 
 ### HTTP compression

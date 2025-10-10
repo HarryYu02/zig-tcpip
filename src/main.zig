@@ -59,7 +59,7 @@ fn handleConnection(connection: net.Server.Connection, args: Args) !void {
     const url = req.get("Url") orelse "";
     if (url.len == 0) {
         // No url
-        _ = try w.write("HTTP/1.1 404 Not Found\r\n\r\n");
+        _ = try w.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
     } else if (mem.eql(u8, "/", url)) {
         // Root -> 200 OK
         _ = try w.write("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
@@ -94,19 +94,33 @@ fn handleConnection(connection: net.Server.Connection, args: Args) !void {
         } else if (mem.eql(u8, "files", route)) {
             const file_name = url_iter.next();
             if (file_name != null) {
-                const dir = args.directory.?;
-                _ = dir;
-                if (false) {
-                    _ = try w.write("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 0\r\n\r\n");
-                } else {
-                    // file not found
-                    _ = try w.write("HTTP/1.1 404 Not Found\r\n\r\n");
-                }
+                var dir = try fs.openDirAbsolute(args.directory.?, .{});
+                defer dir.close();
+
+                var file = dir.openFile(file_name.?, .{}) catch |err| {
+                    std.debug.print("File not found\n", .{});
+                    _ = try w.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+                    _ = try w.flush();
+                    return err;
+                };
+                defer file.close();
+
+                var file_buf: [1024]u8 = undefined;
+                var file_reader = file.reader(&file_buf);
+                const fr = &file_reader.interface;
+                const file_content = try fr.takeDelimiterExclusive('\r');
+
+                var len_buf: [256]u8 = undefined;
+                const len = try std.fmt.bufPrint(&len_buf, "{d}", .{file_content.len});
+                _ = try w.write("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: ");
+                _ = try w.write(len);
+                _ = try w.write("\r\n\r\n");
+                _ = try w.write(file_content);
             } else {
-                _ = try w.write("HTTP/1.1 404 Not Found\r\n\r\n");
+                _ = try w.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
             }
         } else {
-            _ = try w.write("HTTP/1.1 404 Not Found\r\n\r\n");
+            _ = try w.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
         }
     }
 
@@ -133,7 +147,7 @@ pub fn main() !void {
         }
     }
     if (args.directory == null) {
-        args.directory = "./routes";
+        args.directory = "/tmp";
     }
 
     std.debug.print("\n----- Zig TCP/IP server -----\n", .{});
