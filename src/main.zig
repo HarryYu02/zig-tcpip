@@ -54,6 +54,15 @@ fn handleConnection(connection: net.Server.Connection, args: Args) !void {
         error.StreamTooLong => return err,
         error.ReadFailed => return err,
     }
+    const content_len_opt = req.get("Content-Length");
+
+    if (content_len_opt != null) {
+        if (mem.eql(u8, try r.peek(1), "\n")) {
+            _ = try r.take(1);
+        }
+        const content_len = try std.fmt.parseInt(u32, content_len_opt.?, 10);
+        _ = try req.put("Body", try r.take(content_len));
+    }
 
     // Generate response
     const url = req.get("Url") orelse "";
@@ -97,25 +106,42 @@ fn handleConnection(connection: net.Server.Connection, args: Args) !void {
                 var dir = try fs.openDirAbsolute(args.directory.?, .{});
                 defer dir.close();
 
-                var file = dir.openFile(file_name.?, .{}) catch |err| {
-                    std.debug.print("File not found\n", .{});
+                if (mem.eql(u8, req.get("Method").?, "GET")) {
+                    var file = dir.openFile(file_name.?, .{}) catch |err| {
+                        std.debug.print("File not found\n", .{});
+                        _ = try w.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+                        _ = try w.flush();
+                        return err;
+                    };
+                    defer file.close();
+
+                    var file_buf: [1024]u8 = undefined;
+                    var file_reader = file.reader(&file_buf);
+                    const fr = &file_reader.interface;
+                    const file_content = try fr.takeDelimiterExclusive('\r');
+
+                    var len_buf: [256]u8 = undefined;
+                    const len = try std.fmt.bufPrint(&len_buf, "{d}", .{file_content.len});
+                    _ = try w.write("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: ");
+                    _ = try w.write(len);
+                    _ = try w.write("\r\n\r\n");
+                    _ = try w.write(file_content);
+                } else if (mem.eql(u8, req.get("Method").?, "POST")) {
+                    var file = try dir.createFile(file_name.?, .{});
+                    defer file.close();
+
+                    const content = req.get("Body");
+                    std.debug.print("Body: {s}\n", .{content orelse "null"});
+
+                    if (content != null) {
+                        _ = try w.write("HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n");
+                    } else {
+                        _ = try w.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+                    }
+
+                } else {
                     _ = try w.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
-                    _ = try w.flush();
-                    return err;
-                };
-                defer file.close();
-
-                var file_buf: [1024]u8 = undefined;
-                var file_reader = file.reader(&file_buf);
-                const fr = &file_reader.interface;
-                const file_content = try fr.takeDelimiterExclusive('\r');
-
-                var len_buf: [256]u8 = undefined;
-                const len = try std.fmt.bufPrint(&len_buf, "{d}", .{file_content.len});
-                _ = try w.write("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: ");
-                _ = try w.write(len);
-                _ = try w.write("\r\n\r\n");
-                _ = try w.write(file_content);
+                }
             } else {
                 _ = try w.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
             }

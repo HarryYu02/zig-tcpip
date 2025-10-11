@@ -1,6 +1,6 @@
 # Zig TCP/IP
 
-A simple tcp server written in Zig.
+A simple tcp server written in Zig. Not the most elegant code, just for learning Zig.
 
 ## Requirements
 
