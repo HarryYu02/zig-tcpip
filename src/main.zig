@@ -54,8 +54,9 @@ fn handleConnection(connection: net.Server.Connection, args: Args) !void {
         error.StreamTooLong => return err,
         error.ReadFailed => return err,
     }
-    const content_len_opt = req.get("Content-Length");
 
+    // Read request body by content-length
+    const content_len_opt = req.get("Content-Length");
     if (content_len_opt != null) {
         if (mem.eql(u8, try r.peek(1), "\n")) {
             _ = try r.take(1);
@@ -131,12 +132,11 @@ fn handleConnection(connection: net.Server.Connection, args: Args) !void {
                     defer file.close();
 
                     const content = req.get("Body");
-                    std.debug.print("Body: {s}\n", .{content orelse "null"});
-
                     if (content != null) {
+                        _ = try file.write(content.?);
                         _ = try w.write("HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n");
                     } else {
-                        _ = try w.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+                        _ = try w.write("HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n");
                     }
 
                 } else {
